@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ä¼è­°é²é³ã·ã¹ãã </title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', 'Yu Gothic UI', Arial, sans-serif; background: #1a1a2e; color: #eee; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+.container { text-align: center; padding: 40px; max-width: 500px; width: 100%; }
+h1 { font-size: 1.4em; margin-bottom: 20px; color: #e94560; }
+
+/* ä¼è­°åå¥å */
+.name-input { margin-bottom: 24px; }
+.name-input input {
+  width: 100%; padding: 10px 14px; font-size: 1em; border: 2px solid #333;
+  border-radius: 8px; background: #16213e; color: #eee; text-align: center;
+  transition: border-color 0.2s;
+}
+.name-input input:focus { border-color: #e94560; outline: none; }
+.name-input input::placeholder { color: #666; }
+.name-input input:disabled { opacity: 0.5; }
+
+#timer { font-size: 4em; font-weight: 300; letter-spacing: 4px; margin: 20px 0; font-variant-numeric: tabular-nums; }
+#status { font-size: 1.2em; margin: 15px 0; }
+.recording #status { color: #e94560; }
+.idle #status { color: #888; }
+.done #status { color: #43a047; }
+#pulse { width: 16px; height: 16px; border-radius: 50%; background: #e94560; display: inline-block; margin-right: 8px; vertical-align: middle; }
+.recording #pulse { animation: pulse 1s infinite; }
+.idle #pulse, .done #pulse { display: none; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+/* ãã¿ã³ */
+#controls { margin-top: 24px; display: flex; gap: 12px; justify-content: center; }
+button {
+  padding: 14px 36px; font-size: 1.05em; border: none; border-radius: 8px;
+  cursor: pointer; transition: all 0.2s; font-weight: 600;
+}
+#startBtn { background: #e94560; color: #fff; flex: 1; max-width: 200px; }
+#startBtn:hover:not(:disabled) { background: #c23152; transform: translateY(-1px); }
+#startBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+#stopBtn { background: #333; color: #fff; flex: 1; max-width: 200px; }
+#stopBtn:hover:not(:disabled) { background: #555; transform: translateY(-1px); }
+#stopBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+#resetBtn { background: transparent; color: #888; border: 1px solid #444; padding: 8px 16px; font-size: 0.85em; margin-top: 12px; border-radius: 6px; }
+#resetBtn:hover { color: #eee; border-color: #888; }
+
+/* ãã¦ã³ã­ã¼ã */
+#downloadArea { margin-top: 24px; display: none; }
+#downloadArea a {
+  display: inline-block; padding: 12px 24px; background: #43a047; color: #fff;
+  text-decoration: none; border-radius: 8px; font-weight: 600; transition: all 0.2s;
+}
+#downloadArea a:hover { background: #388e3c; transform: translateY(-1px); }
+#fileInfo { margin-top: 8px; font-size: 0.85em; color: #888; }
+
+/* ã­ã° */
+#log { margin-top: 24px; font-size: 0.8em; color: #555; max-height: 120px; overflow-y: auto; text-align: left; background: #111; border-radius: 8px; padding: 8px 12px; }
+
+/* ãã³ã */
+.hint { margin-top: 16px; font-size: 0.75em; color: #444; }
+</style>
+</head>
+<body class="idle">
+<div class="container">
+  <h1>ðï¸ ä¼è­°é²é³ã·ã¹ãã </h1>
+  <div class="name-input">
+    <input type="text" id="nameInput" placeholder="ä¼è­°åãå¥åï¼ä¾: é¨éé·ä¼è­°ï¼" value="">
+  </div>
+  <div id="timer">00:00:00</div>
+  <div id="status"><span id="pulse"></span><span id="statusText">é²é³å¾æ©ä¸­</span></div>
+  <div id="controls">
+    <button id="startBtn" onclick="startRecording()">âº é²é³éå§</button>
+    <button id="stopBtn" onclick="stopRecording()" disabled>â¹ é²é³åæ­¢</button>
+  </div>
+  <button id="resetBtn" onclick="resetRecorder()" style="display:none;">ð ãªã»ããï¼æ°ããé²é³ï¼</button>
+  <div id="downloadArea">
+    <a id="dlLink" href="#" download="">ð¥ ãã¦ã³ã­ã¼ã</a>
+    <div id="fileInfo"></div>
+  </div>
+  <div id="log"></div>
+  <div class="hint">ð¡ Claudeã¹ã±ã¸ã¥ã¼ã©ã¼ããã®èªåæä½ã«ãå¯¾å¿ãã¦ãã¾ã</div>
+</div>
+<script>
+let mediaRecorder = null;
+let audioChunks = [];
+let startTime = null;
+let timerInterval = null;
+let meetingInfo = { name: '', date: '' };
+
+// URLãã©ã¡ã¼ã¿ããä¼è­°æå ±ãåå¾
+const params = new URLSearchParams(window.location.search);
+if (params.get('name')) {
+  meetingInfo.name = decodeURIComponent(params.get('name'));
+  document.getElementById('nameInput').value = meetingInfo.name;
+}
+if (params.get('autostart') === 'true') {
+  window.addEventListener('load', () => setTimeout(startRecording, 1000));
+}
+
+function log(msg) {
+  const el = document.getElementById('log');
+  const t = new Date().toLocaleTimeString('ja-JP');
+  el.innerHTML = `[${t}] ${msg}<br>` + el.innerHTML;
+  console.log(`[MeetingRecorder] ${msg}`);
+}
+
+function updateTimer() {
+  if (!startTime) return;
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+  const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+  const s = String(elapsed % 60).padStart(2, '0');
+  document.getElementById('timer').textContent = `${h}:${m}:${s}`;
+}
+
+function getMeetingName() {
+  return document.getElementById('nameInput').value.trim() || 'ç¡é¡ã®ä¼è­°';
+}
+
+async function startRecording() {
+  try {
+    meetingInfo.name = getMeetingName();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
+    });
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = handleStop;
+    mediaRecorder.start(1000);
+    startTime = Date.now();
+    timerInterval = setInterval(updateTimer, 1000);
+    document.body.className = 'recording';
+    document.getElementById('statusText').textContent = 'é²é³ä¸­: ' + meetingInfo.name;
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('nameInput').disabled = true;
+    document.getElementById('resetBtn').style.display = 'none';
+    document.getElementById('downloadArea').style.display = 'none';
+    log('é²é³éå§: ' + meetingInfo.name);
+  } catch (err) {
+    log('ã¨ã©ã¼: ' + err.message);
+    alert('ãã¤ã¯ã¸ã®ã¢ã¯ã»ã¹ãè¨±å¯ãã¦ãã ããã');
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    clearInterval(timerInterval);
+    document.body.className = 'done';
+    document.getElementById('statusText').textContent = 'é²é³å®äº - å¦çä¸­...';
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = true;
+    log('é²é³åæ­¢');
+  }
+}
+
+function handleStop() {
+  const blob = new Blob(audioChunks, { type: 'audio/webm' });
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10);
+  const safeName = meetingInfo.name.replace(/[<>:"/\\|?*]/g, '_') || 'meeting';
+  const filename = dateStr + '_' + safeName + '.webm';
+
+  const url = URL.createObjectURL(blob);
+  const dlArea = document.getElementById('downloadArea');
+  const dlLink = document.getElementById('dlLink');
+  dlLink.href = url;
+  dlLink.download = filename;
+  dlLink.textContent = 'ð¥ ' + filename + ' ããã¦ã³ã­ã¼ã';
+  dlArea.style.display = 'block';
+  document.getElementById('fileInfo').textContent =
+    'ãµã¤ãº: ' + (blob.size / 1024 / 1024).toFixed(1) + 'MB | é²é³æé: ' + document.getElementById('timer').textContent;
+
+  // èªåãã¦ã³ã­ã¼ã
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+
+  document.getElementById('statusText').textContent = 'é²é³å®äº: ' + filename;
+  document.getElementById('resetBtn').style.display = 'inline-block';
+  log('ä¿å­å®äº: ' + filename + ' (' + (blob.size / 1024 / 1024).toFixed(1) + 'MB)');
+
+  window.recordingBlob = blob;
+  window.recordingFilename = filename;
+  window.recordingReady = true;
+}
+
+function resetRecorder() {
+  audioChunks = [];
+  window.recordingBlob = null;
+  window.recordingFilename = null;
+  window.recordingReady = false;
+  document.getElementById('downloadArea').style.display = 'none';
+  document.getElementById('resetBtn').style.display = 'none';
+  document.body.className = 'idle';
+  document.getElementById('statusText').textContent = 'é²é³å¾æ©ä¸­';
+  document.getElementById('timer').textContent = '00:00:00';
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('nameInput').disabled = false;
+  startTime = null;
+  log('ãªã»ããå®äº');
+}
+
+function setMeetingName(name) {
+  meetingInfo.name = name;
+  document.getElementById('nameInput').value = name;
+  log('ä¼è­°åãè¨­å®: ' + name);
+}
+
+// å¤é¨å¶å¾¡API
+window.MeetingRecorder = {
+  start: startRecording,
+  stop: stopRecording,
+  setName: setMeetingName,
+  isRecording: () => mediaRecorder && mediaRecorder.state === 'recording',
+  getState: () => mediaRecorder ? mediaRecorder.state : 'inactive',
+  getDuration: () => startTime ? Math.floor((Date.now() - startTime) / 1000) : 0,
+  getMeetingName: () => meetingInfo.name,
+  getFilename: () => window.recordingFilename || null,
+  getBlobSize: () => window.recordingBlob ? window.recordingBlob.size : 0,
+  isReady: () => window.recordingReady === true,
+  reset: resetRecorder
+};
+</script>
+</body>
+</html>
+
