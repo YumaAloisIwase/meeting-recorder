@@ -68,15 +68,47 @@ button {
 #log { margin-top: 24px; font-size: 0.8em; color: #666; max-height: 120px; overflow-y: auto; text-align: left; background: #f9f9f9; border: 1px solid #eee; border-radius: 8px; padding: 8px 12px; }
 
 .hint { margin-top: 16px; font-size: 0.75em; color: #aaa; }
+
+/* Folder notification popup */
+#folderNotification {
+  display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  background: #fff3e0; border: 2px solid #ff9800; border-radius: 12px; padding: 16px 24px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.15); z-index: 9999; max-width: 420px; text-align: center;
+  animation: slideDown 0.3s ease-out;
+}
+#folderNotification .notif-title { font-weight: 700; color: #e65100; margin-bottom: 6px; font-size: 1em; }
+#folderNotification .notif-body { font-size: 0.85em; color: #555; margin-bottom: 10px; line-height: 1.5; }
+#folderNotification .notif-path { font-size: 0.75em; color: #888; background: #f5f5f5; padding: 4px 8px; border-radius: 4px; word-break: break-all; margin-bottom: 10px; }
+#folderNotification .notif-actions { display: flex; gap: 8px; justify-content: center; }
+#folderNotification .notif-btn {
+  padding: 8px 18px; border-radius: 6px; font-size: 0.9em; font-weight: 600; cursor: pointer; border: none;
+}
+#folderNotification .notif-btn.primary { background: #ff9800; color: #fff; }
+#folderNotification .notif-btn.primary:hover { background: #f57c00; }
+#folderNotification .notif-btn.secondary { background: #eee; color: #555; }
+#folderNotification .notif-btn.secondary:hover { background: #ddd; }
+@keyframes slideDown { from { top: -80px; opacity: 0; } to { top: 20px; opacity: 1; } }
 </style>
 </head>
 <body class="idle">
 <div class="container">
   <h1>&#x1F399;&#xFE0F; 会議録音システム</h1>
 
+  <!-- Folder notification popup -->
+  <div id="folderNotification">
+    <div class="notif-title">&#x1F4C1; 保存先フォルダが未設定です</div>
+    <div class="notif-body">録音ファイルをGoogle Driveに自動同期するには、<br>以下のフォルダを選択してください：</div>
+    <div class="notif-path">会議録音アーカイブ<br><span style="font-size:0.9em; color:#aaa;">（デスクトップ → 念のため保存 → GoogleDrive同期用 → 会議録音アーカイブ）</span></div>
+    <div class="notif-actions">
+      <button class="notif-btn primary" onclick="setupFolder(); closeFolderNotification();">フォルダを選択</button>
+      <button class="notif-btn secondary" onclick="closeFolderNotification();">あとで</button>
+    </div>
+  </div>
+
   <div class="folder-setup">
     <button id="folderBtn" onclick="setupFolder()">&#x1F4C1; 保存先フォルダを設定</button>
     <div id="folderStatus">&#x26A0;&#xFE0F; 保存先未設定（ダウンロードフォルダに保存されます）</div>
+    <div id="folderGuide" style="font-size:0.75em; color:#999; margin-top:4px; display:none;">選択先: デスクトップ → 念のため保存 → GoogleDrive同期用 → 会議録音アーカイブ</div>
     <div id="permissionBar">
       <button id="permissionBtn" onclick="requestFolderPermission()">&#x1F513; フォルダアクセスを許可</button>
     </div>
@@ -160,6 +192,7 @@ async function setupFolder() {
     await saveDirHandle(dirHandle);
     folderPermissionGranted = true;
     updateFolderUI('granted');
+    closeFolderNotification();
     log('保存先フォルダを設定: ' + dirHandle.name);
   } catch (e) {
     if (e.name !== 'AbortError') {
@@ -190,16 +223,20 @@ function updateFolderUI(state) {
   var statusEl = document.getElementById('folderStatus');
   var btnEl = document.getElementById('folderBtn');
   var permBar = document.getElementById('permissionBar');
+  var guideEl = document.getElementById('folderGuide');
 
   if (!dirHandle) {
     statusEl.innerHTML = '&#x26A0;&#xFE0F; 保存先未設定（ダウンロードフォルダに保存されます）';
     statusEl.style.color = '#f57c00';
     permBar.style.display = 'none';
+    if (guideEl) guideEl.style.display = 'block';
     return;
   }
 
+  if (guideEl) guideEl.style.display = 'none';
+
   if (state === 'granted') {
-    statusEl.innerHTML = '&#x2705; ' + dirHandle.name + '（年月フォルダに自動振り分け）';
+    statusEl.innerHTML = '&#x2705; ' + dirHandle.name + '（年月フォルダに自動振り分け → Google Drive同期）';
     statusEl.style.color = '#2e7d32';
     btnEl.innerHTML = '&#x1F4C1; フォルダ変更';
     permBar.style.display = 'none';
@@ -213,6 +250,16 @@ function updateFolderUI(state) {
     statusEl.style.color = '#d32f2f';
     permBar.style.display = 'none';
   }
+}
+
+function showFolderNotification() {
+  var el = document.getElementById('folderNotification');
+  if (el) el.style.display = 'block';
+}
+
+function closeFolderNotification() {
+  var el = document.getElementById('folderNotification');
+  if (el) el.style.display = 'none';
 }
 
 async function initFolder() {
@@ -240,10 +287,13 @@ async function initFolder() {
       }
     } else {
       updateFolderUI(null);
+      // Show notification popup when no folder is configured
+      setTimeout(showFolderNotification, 500);
     }
   } catch (e) {
     log('フォルダ復元エラー: ' + e.message);
     updateFolderUI(null);
+    setTimeout(showFolderNotification, 500);
   }
 }
 
