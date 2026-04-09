@@ -42,6 +42,8 @@ button {
 #stopBtn { background: #555; color: #fff; flex: 1; max-width: 200px; }
 #stopBtn:hover:not(:disabled) { background: #333; transform: translateY(-1px); }
 #stopBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+#cancelBtn { background: transparent; color: #d32f2f; border: 1px solid #d32f2f; padding: 8px 16px; font-size: 0.85em; margin-top: 12px; border-radius: 6px; display: none; }
+#cancelBtn:hover { background: #ffebee; color: #b71c1c; border-color: #b71c1c; }
 #resetBtn { background: transparent; color: #888; border: 1px solid #ccc; padding: 8px 16px; font-size: 0.85em; margin-top: 12px; border-radius: 6px; }
 #resetBtn:hover { color: #333; border-color: #888; }
 
@@ -76,6 +78,7 @@ button {
     <button id="startBtn" onclick="startRecording()">&#x23FA; 録音開始</button>
     <button id="stopBtn" onclick="stopRecording()" disabled>&#x23F9; 録音停止</button>
   </div>
+  <button id="cancelBtn" onclick="cancelRecording()">&#x1F6AB; キャンセル（録音破棄）</button>
   <button id="resetBtn" onclick="resetRecorder()" style="display:none;">&#x1F504; リセット（新しい録音）</button>
   <div id="downloadArea">
     <div class="dl-buttons">
@@ -188,7 +191,7 @@ function submitViaIframe(payload, blob, filename) {
 
   var oldFrame = document.getElementById('uploadFrame');
   if (oldFrame) oldFrame.remove();
-  var oldForm = document.getElentById('uploadForm');
+  var oldForm = document.getElementById('uploadForm');
   if (oldForm) oldForm.remove();
 
   var iframe = document.createElement('iframe');
@@ -299,6 +302,7 @@ async function startRecording() {
     document.getElementById('startBtn').disabled = true;
     document.getElementById('stopBtn').disabled = false;
     document.getElementById('nameInput').disabled = true;
+    document.getElementById('cancelBtn').style.display = 'inline-block';
     document.getElementById('resetBtn').style.display = 'none';
     document.getElementById('downloadArea').style.display = 'none';
     log('録音開始: ' + meetingInfo.name);
@@ -314,9 +318,10 @@ function stopRecording() {
     mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
     clearInterval(timerInterval);
     document.body.className = 'done';
-    document.getElementById('statusText').textContent = '録音完了　－ 処理中...';
+    document.getElementById('statusText').textContent = '録音完了 - 処理中...';
     document.getElementById('startBtn').disabled = true;
     document.getElementById('stopBtn').disabled = true;
+    document.getElementById('cancelBtn').style.display = 'none';
     log('録音停止');
   }
 }
@@ -332,7 +337,7 @@ function handleStop() {
   document.getElementById('fileInfo').textContent =
     'サイズ: ' + (blob.size / 1024 / 1024).toFixed(1) + 'MB | 録音時間: ' + document.getElementById('timer').textContent;
 
-  document.getElementById('statusText').textContent = '録音完予: ' + filename;
+  document.getElementById('statusText').textContent = '録音完了: ' + filename;
   document.getElementById('resetBtn').style.display = 'inline-block';
   log('保存完了: ' + filename + ' (' + (blob.size / 1024 / 1024).toFixed(1) + 'MB)');
 
@@ -349,6 +354,28 @@ function handleStop() {
   window.recordingReady = true;
 
   uploadToDrive(blob, filename);
+}
+
+function cancelRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.onstop = null; // handleStopを発火させない（保存・アップロードしない）
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
+    clearInterval(timerInterval);
+  }
+  audioChunks = [];
+  mediaRecorder = null;
+  startTime = null;
+  document.body.className = 'idle';
+  document.getElementById('statusText').textContent = '録音待機中（キャンセル済み）';
+  document.getElementById('timer').textContent = '00:00:00';
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+  document.getElementById('cancelBtn').style.display = 'none';
+  document.getElementById('nameInput').disabled = false;
+  document.getElementById('downloadArea').style.display = 'none';
+  document.getElementById('resetBtn').style.display = 'none';
+  log('録音キャンセル - ファイルは保存されません');
 }
 
 function resetRecorder() {
@@ -385,6 +412,7 @@ function setMeetingName(name) {
 window.MeetingRecorder = {
   start: startRecording,
   stop: stopRecording,
+  cancel: cancelRecording,
   setName: setMeetingName,
   isRecording: function() { return mediaRecorder && mediaRecorder.state === 'recording'; },
   getState: function() { return mediaRecorder ? mediaRecorder.state : 'inactive'; },
