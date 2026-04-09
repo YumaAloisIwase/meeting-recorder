@@ -11,6 +11,20 @@ body { font-family: 'Segoe UI', 'Yu Gothic UI', 'Hiragino Sans', 'Meiryo', sans-
 .container { text-align: center; padding: 40px; max-width: 500px; width: 100%; background: #fff; border-radius: 16px; box-shadow: 0 2px 16px rgba(0,0,0,0.08); margin: 20px; }
 h1 { font-size: 1.4em; margin-bottom: 20px; color: #d32f2f; }
 
+.folder-setup { margin-bottom: 16px; padding: 10px; background: #f9f9f9; border-radius: 8px; border: 1px solid #e0e0e0; }
+#folderBtn {
+  background: #fff; color: #555; border: 1px solid #ccc; padding: 6px 14px;
+  font-size: 0.85em; border-radius: 6px; cursor: pointer; transition: all 0.2s;
+}
+#folderBtn:hover { background: #f5f5f5; border-color: #999; }
+#folderStatus { margin-top: 6px; font-size: 0.8em; }
+#permissionBar { display: none; margin-top: 8px; }
+#permissionBtn {
+  background: #1a73e8; color: #fff; border: none; padding: 6px 14px;
+  font-size: 0.85em; border-radius: 6px; cursor: pointer; transition: all 0.2s;
+}
+#permissionBtn:hover { background: #1557b0; }
+
 .name-input { margin-bottom: 24px; }
 .name-input input {
   width: 100%; padding: 10px 14px; font-size: 1em; border: 2px solid #ddd;
@@ -47,19 +61,9 @@ button {
 #resetBtn { background: transparent; color: #888; border: 1px solid #ccc; padding: 8px 16px; font-size: 0.85em; margin-top: 12px; border-radius: 6px; }
 #resetBtn:hover { color: #333; border-color: #888; }
 
-#downloadArea { margin-top: 24px; display: none; }
-.dl-buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-#downloadArea a, #downloadArea button.drive-btn {
-  display: inline-flex; align-items: center; gap: 6px; padding: 12px 20px;
-  color: #fff; text-decoration: none; border-radius: 8px; font-weight: 600;
-  transition: all 0.2s; font-size: 0.95em; border: none; cursor: pointer;
-}
-#dlLink { background: #2e7d32; }
-#dlLink:hover { background: #1b5e20; transform: translateY(-1px); }
-.drive-btn { background: #1a73e8; }
-.drive-btn:hover { background: #1557b0; transform: translateY(-1px); }
-.drive-btn svg { width: 18px; height: 18px; }
-#fileInfo { margin-top: 8px; font-size: 0.85em; color: #888; }
+#saveArea { margin-top: 24px; display: none; }
+#saveStatus { font-size: 1em; font-weight: 600; margin-bottom: 4px; }
+#fileInfo { font-size: 0.85em; color: #888; }
 
 #log { margin-top: 24px; font-size: 0.8em; color: #666; max-height: 120px; overflow-y: auto; text-align: left; background: #f9f9f9; border: 1px solid #eee; border-radius: 8px; padding: 8px 12px; }
 
@@ -69,6 +73,15 @@ button {
 <body class="idle">
 <div class="container">
   <h1>&#x1F399;&#xFE0F; 会議録音システム</h1>
+
+  <div class="folder-setup">
+    <button id="folderBtn" onclick="setupFolder()">&#x1F4C1; 保存先フォルダを設定</button>
+    <div id="folderStatus">&#x26A0;&#xFE0F; 保存先未設定（ダウンロードフォルダに保存されます）</div>
+    <div id="permissionBar">
+      <button id="permissionBtn" onclick="requestFolderPermission()">&#x1F513; フォルダアクセスを許可</button>
+    </div>
+  </div>
+
   <div class="name-input">
     <input type="text" id="nameInput" placeholder="会議名を入力（例: 部門長会議）" value="">
   </div>
@@ -80,33 +93,222 @@ button {
   </div>
   <button id="cancelBtn" onclick="cancelRecording()">&#x1F6AB; キャンセル（録音破棄）</button>
   <button id="resetBtn" onclick="resetRecorder()" style="display:none;">&#x1F504; リセット（新しい録音）</button>
-  <div id="downloadArea">
-    <div class="dl-buttons">
-      <button class="drive-btn" id="driveBtn" disabled>
-        <svg viewBox="0 0 24 24" fill="white"><path d="M7.71 3.5L1.15 15l3.43 5.98L11.14 9.48zM8.8 3.5h6.4l6.65 11.5H15.45zM14.43 3.5L20.99 15l-3.43 5.98-6.56-11.5z" opacity="0.9"/></svg>
-        &#x2B06;&#xFE0F; &#x30A2;&#x30C3;&#x30D7;&#x30ED;&#x30FC;&#x30C9;&#x4E2D;...
-      </button>
-    </div>
-    <div id="driveStatus" style="margin-top:6px; font-size:0.85em; color:#1a73e8;"></div>
+
+  <div id="saveArea">
+    <div id="saveStatus"></div>
     <div id="fileInfo"></div>
   </div>
+
   <div id="log"></div>
   <div class="hint">&#x1F4A1; Claudeスケジューラーからの自動操作にも対応しています</div>
 </div>
 <script>
+/* ======== Recording State ======== */
 var mediaRecorder = null;
 var audioChunks = [];
 var startTime = null;
 var timerInterval = null;
 var meetingInfo = { name: '', date: '' };
 
-// Upload state tracking flags for scheduler coordination
+// Flags for scheduler coordination
 window.isUploading = false;
 window.uploadComplete = false;
+window.isSaving = false;
+window.saveComplete = false;
 
-var DRIVE_BASE_FOLDER = '1i_5D1Kpe_B-mZdT0--OrD9rBsq82vopq';
-var APPS_SCRIPT_URL = 'https://script.google.com/a/macros/yamatoku.jp/s/AKfycbxXmcT3XEhO1AlNJkx8MlMvrYlAexhPfA0B3NK-hK-58N-00_6z7Gsh9l-i8kU7E3Jv/exec';
+/* ======== IndexedDB for Directory Handle ======== */
+var DB_NAME = 'MeetingRecorderDB';
+var STORE_NAME = 'settings';
+var dirHandle = null;
+var folderPermissionGranted = false;
 
+function openDB() {
+  return new Promise(function(resolve, reject) {
+    var req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = function(e) { e.target.result.createObjectStore(STORE_NAME); };
+    req.onsuccess = function() { resolve(req.result); };
+    req.onerror = function() { reject(req.error); };
+  });
+}
+
+function saveDirHandle(handle) {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(handle, 'dirHandle');
+      tx.oncomplete = resolve;
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+
+function loadDirHandle() {
+  return openDB().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(STORE_NAME, 'readonly');
+      var req = tx.objectStore(STORE_NAME).get('dirHandle');
+      req.onsuccess = function() { resolve(req.result || null); };
+      req.onerror = function() { reject(req.error); };
+    });
+  });
+}
+
+/* ======== Folder Setup (File System Access API) ======== */
+async function setupFolder() {
+  try {
+    dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    await saveDirHandle(dirHandle);
+    folderPermissionGranted = true;
+    updateFolderUI('granted');
+    log('保存先フォルダを設定: ' + dirHandle.name);
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      log('フォルダ設定エラー: ' + e.message);
+    }
+  }
+}
+
+async function requestFolderPermission() {
+  if (!dirHandle) return;
+  try {
+    var perm = await dirHandle.requestPermission({ mode: 'readwrite' });
+    if (perm === 'granted') {
+      folderPermissionGranted = true;
+      updateFolderUI('granted');
+      log('フォルダアクセス許可済み: ' + dirHandle.name);
+    } else {
+      updateFolderUI('denied');
+      log('フォルダアクセス拒否');
+    }
+  } catch (e) {
+    log('パーミッション要求エラー: ' + e.message);
+    updateFolderUI('denied');
+  }
+}
+
+function updateFolderUI(state) {
+  var statusEl = document.getElementById('folderStatus');
+  var btnEl = document.getElementById('folderBtn');
+  var permBar = document.getElementById('permissionBar');
+
+  if (!dirHandle) {
+    statusEl.innerHTML = '&#x26A0;&#xFE0F; 保存先未設定（ダウンロードフォルダに保存されます）';
+    statusEl.style.color = '#f57c00';
+    permBar.style.display = 'none';
+    return;
+  }
+
+  if (state === 'granted') {
+    statusEl.innerHTML = '&#x2705; ' + dirHandle.name + '（年月フォルダに自動振り分け）';
+    statusEl.style.color = '#2e7d32';
+    btnEl.innerHTML = '&#x1F4C1; フォルダ変更';
+    permBar.style.display = 'none';
+  } else if (state === 'prompt') {
+    statusEl.innerHTML = '&#x1F513; ' + dirHandle.name + '（アクセス許可が必要です）';
+    statusEl.style.color = '#f57c00';
+    btnEl.innerHTML = '&#x1F4C1; フォルダ変更';
+    permBar.style.display = 'block';
+  } else {
+    statusEl.innerHTML = '&#x274C; アクセス拒否 - フォルダを再設定してください';
+    statusEl.style.color = '#d32f2f';
+    permBar.style.display = 'none';
+  }
+}
+
+async function initFolder() {
+  // Check if File System Access API is supported
+  if (!window.showDirectoryPicker) {
+    document.getElementById('folderStatus').innerHTML = '&#x2139;&#xFE0F; このブラウザはフォルダ直接保存に非対応（ダウンロードで保存）';
+    document.getElementById('folderStatus').style.color = '#888';
+    document.getElementById('folderBtn').style.display = 'none';
+    return;
+  }
+
+  try {
+    dirHandle = await loadDirHandle();
+    if (dirHandle) {
+      // Check current permission state without triggering a prompt
+      var perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+      if (perm === 'granted') {
+        folderPermissionGranted = true;
+        updateFolderUI('granted');
+        log('保存先フォルダ復元: ' + dirHandle.name);
+      } else {
+        folderPermissionGranted = false;
+        updateFolderUI('prompt');
+        log('保存先フォルダ復元: ' + dirHandle.name + '（要パーミッション）');
+      }
+    } else {
+      updateFolderUI(null);
+    }
+  } catch (e) {
+    log('フォルダ復元エラー: ' + e.message);
+    updateFolderUI(null);
+  }
+}
+
+/* ======== File Save Logic ======== */
+function getMonthStr() {
+  var now = new Date();
+  var y = now.getFullYear();
+  var m = String(now.getMonth() + 1).padStart(2, '0');
+  return y + '-' + m;
+}
+
+function getDateStr() {
+  var now = new Date();
+  return now.toISOString().slice(0, 10);
+}
+
+async function saveFile(blob, filename) {
+  var monthStr = getMonthStr();
+
+  // Try File System Access API first
+  if (dirHandle && folderPermissionGranted) {
+    try {
+      // Verify permission is still valid
+      var perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        perm = await dirHandle.requestPermission({ mode: 'readwrite' });
+      }
+      if (perm === 'granted') {
+        // Get or create month subfolder
+        var monthDir = await dirHandle.getDirectoryHandle(monthStr, { create: true });
+
+        // Write file
+        var fileHandle = await monthDir.getFileHandle(filename, { create: true });
+        var writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+
+        var path = dirHandle.name + '/' + monthStr + '/' + filename;
+        log('フォルダに保存完了: ' + path);
+        return { success: true, path: path, method: 'folder' };
+      }
+    } catch (e) {
+      log('フォルダ保存エラー: ' + e.message + ' → ダウンロードにフォールバック');
+    }
+  }
+
+  // Fallback: browser download
+  try {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 5000);
+    log('ダウンロード保存: ' + filename);
+    return { success: true, path: filename, method: 'download' };
+  } catch (e) {
+    log('ダウンロード保存エラー: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/* ======== URL Params / Autostart ======== */
 var params = new URLSearchParams(window.location.search);
 if (params.get('name')) {
   meetingInfo.name = decodeURIComponent(params.get('name'));
@@ -116,6 +318,7 @@ if (params.get('autostart') === 'true') {
   window.addEventListener('load', function() { setTimeout(startRecording, 1000); });
 }
 
+/* ======== Logging ======== */
 function log(msg) {
   var el = document.getElementById('log');
   var t = new Date().toLocaleTimeString('ja-JP');
@@ -123,6 +326,7 @@ function log(msg) {
   console.log('[MeetingRecorder] ' + msg);
 }
 
+/* ======== Timer ======== */
 function updateTimer() {
   if (!startTime) return;
   var elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -136,154 +340,7 @@ function getMeetingName() {
   return document.getElementById('nameInput').value.trim() || '無題の会議';
 }
 
-function getDateStr() {
-  var now = new Date();
-  return now.toISOString().slice(0, 10);
-}
-
-function getMonthStr() {
-  var now = new Date();
-  var y = now.getFullYear();
-  var m = String(now.getMonth() + 1).padStart(2, '0');
-  return y + '-' + m;
-}
-
-function openGoogleDrive() {
-  var url = 'https://drive.google.com/drive/folders/' + DRIVE_BASE_FOLDER;
-  window.open(url, '_blank');
-  log('Google Drive フォルダを開きました');
-}
-
-function uploadToDrive(blob, filename) {
-  var driveBtn = document.getElementById('driveBtn');
-  var driveStatus = document.getElementById('driveStatus');
-  driveBtn.disabled = true;
-  driveBtn.textContent = '⬆️ アップロード中...';
-  driveStatus.textContent = 'Google Drive にアップロード中...';
-  driveStatus.style.color = '#1a73e8';
-  log('アップロード開始: ' + filename);
-
-  var reader = new FileReader();
-  reader.onerror = function() {
-    log('アップロード失敗: Base64変換エラー');
-    window.isUploading = false;
-    showUploadError('Base64変換エラー', blob, filename);
-  };
-  reader.onload = function() {
-    var base64 = reader.result.split(',')[1];
-    var payload = JSON.stringify({
-      file: base64,
-      filename: filename,
-      mimeType: 'audio/webm',
-      month: getMonthStr()
-    });
-    submitViaIframe(payload, blob, filename);
-  };
-  reader.readAsDataURL(blob);
-}
-
-var uploadTimer = null;
-
-function submitViaIframe(payload, blob, filename) {
-  // IMPORTANT: Apps Script code must use window.top.postMessage() instead of window.parent.postMessage()
-  // to reach this page, because HtmlService.createHtmlOutput() wraps content in a sandboxed iframe.
-  // Update your Apps Script with: window.top.postMessage({success:true,...}, "*")
-
-  var oldFrame = document.getElementById('uploadFrame');
-  if (oldFrame) oldFrame.remove();
-  var oldForm = document.getElementById('uploadForm');
-  if (oldForm) oldForm.remove();
-
-  var iframe = document.createElement('iframe');
-  iframe.id = 'uploadFrame';
-  iframe.name = 'uploadFrame';
-  iframe.style.display = 'none';
-  document.body.appendChild(iframe);
-
-  var iframeLoadAttempts = 0;
-  var iframeLoadHandler = function() {
-    iframeLoadAttempts++;
-    log('iframe load detected (attempt ' + iframeLoadAttempts + ')');
-    // Attempt to read iframe content as a fallback detection method
-    try {
-      var iframeContent = iframe.contentDocument || iframe.contentWindow.document;
-      if (iframeContent && iframeContent.body) {
-        log('iframe content accessible, attempting to extract response');
-      }
-    } catch (e) {
-      log('iframe content not accessible (sandboxed): ' + e.message);
-    }
-  };
-  iframe.addEventListener('load', iframeLoadHandler);
-
-  var onMessage = function(event) {
-    if (uploadTimer) { clearTimeout(uploadTimer); uploadTimer = null; }
-    window.removeEventListener('message', onMessage);
-    var result = event.data;
-    var driveBtn = document.getElementById('driveBtn');
-    var driveStatus = document.getElementById('driveStatus');
-
-    if (result && result.success) {
-      window.isUploading = false;
-      window.uploadComplete = true;
-      driveBtn.textContent = '✅ Drive 保存完了';
-      driveBtn.style.background = '#2e7d32';
-      driveStatus.textContent = '✅ ' + result.folder + ' フォルダに保存しました';
-      driveStatus.style.color = '#2e7d32';
-      log('アップロード完了: ' + result.fileName + ' -> ' + result.folder);
-      window.driveFileUrl = result.url;
-    } else {
-      var errMsg = (result && result.error) ? result.error : '不明なエラー';
-      log('アップロード失敗: ' + errMsg);
-      window.isUploading = false;
-      showUploadError(errMsg, blob, filename);
-    }
-    setTimeout(function() { var f = document.getElementById('uploadFrame'); if (f) f.remove(); }, 1000);
-  };
-  window.addEventListener('message', onMessage);
-
-  uploadTimer = setTimeout(function() {
-    window.removeEventListener('message', onMessage);
-    log('アップロードタイムアウト (300秒)');
-    window.isUploading = false;
-    showUploadError('タイムアウト', blob, filename);
-  }, 300000);
-
-  var form = document.createElement('form');
-  form.id = 'uploadForm';
-  form.method = 'POST';
-  form.action = APPS_SCRIPT_URL;
-  form.target = 'uploadFrame';
-  form.style.display = 'none';
-  var input = document.createElement('input');
-  input.type = 'hidden';
-  input.name = 'data';
-  input.value = payload;
-  form.appendChild(input);
-  document.body.appendChild(form);
-  form.submit();
-  window.isUploading = true;
-  log('iframe経由でフォーム送信完了');
-}
-
-function showUploadError(errMsg, blob, filename) {
-  var driveBtn = document.getElementById('driveBtn');
-  var driveStatus = document.getElementById('driveStatus');
-  driveBtn.textContent = '❌ アップロード失敗';
-  driveBtn.style.background = '#d32f2f';
-  driveStatus.textContent = '❌ 失敗: ' + errMsg;
-  driveStatus.style.color = '#d32f2f';
-  driveBtn.disabled = false;
-  driveBtn.onclick = function() { uploadToDrive(blob, filename); };
-  log('ローカルコピーは既に保存済みです。手動でアップロードを再試行できます。');
-  setTimeout(function() {
-    if (driveBtn.textContent.indexOf('❌') === 0) {
-      driveBtn.textContent = '🔄 リトライ';
-      driveBtn.style.background = '#1a73e8';
-    }
-  }, 3000);
-}
-
+/* ======== Recording Controls ======== */
 async function startRecording() {
   try {
     meetingInfo.name = getMeetingName();
@@ -304,7 +361,11 @@ async function startRecording() {
     document.getElementById('nameInput').disabled = true;
     document.getElementById('cancelBtn').style.display = 'inline-block';
     document.getElementById('resetBtn').style.display = 'none';
-    document.getElementById('downloadArea').style.display = 'none';
+    document.getElementById('saveArea').style.display = 'none';
+    window.saveComplete = false;
+    window.isSaving = false;
+    window.uploadComplete = false;
+    window.isUploading = false;
     log('録音開始: ' + meetingInfo.name);
   } catch (err) {
     log('エラー: ' + err.message);
@@ -318,7 +379,7 @@ function stopRecording() {
     mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
     clearInterval(timerInterval);
     document.body.className = 'done';
-    document.getElementById('statusText').textContent = '録音完了 - 処理中...';
+    document.getElementById('statusText').textContent = '録音完了 - 保存中...';
     document.getElementById('startBtn').disabled = true;
     document.getElementById('stopBtn').disabled = true;
     document.getElementById('cancelBtn').style.display = 'none';
@@ -332,33 +393,46 @@ function handleStop() {
   var safeName = meetingInfo.name.replace(/[<>:"\/\\|?*]/g, '_') || 'meeting';
   var filename = dateStr + '_' + safeName + '.webm';
 
-  var dlArea = document.getElementById('downloadArea');
-  dlArea.style.display = 'block';
+  document.getElementById('saveArea').style.display = 'block';
   document.getElementById('fileInfo').textContent =
     'サイズ: ' + (blob.size / 1024 / 1024).toFixed(1) + 'MB | 録音時間: ' + document.getElementById('timer').textContent;
-
-  document.getElementById('statusText').textContent = '録音完了: ' + filename;
   document.getElementById('resetBtn').style.display = 'inline-block';
-  log('保存完了: ' + filename + ' (' + (blob.size / 1024 / 1024).toFixed(1) + 'MB)');
-
-  // Auto-download locally
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  log('ローカルにダウンロード: ' + filename);
 
   window.recordingBlob = blob;
   window.recordingFilename = filename;
   window.recordingReady = true;
+  window.isSaving = true;
 
-  uploadToDrive(blob, filename);
+  var saveStatusEl = document.getElementById('saveStatus');
+  saveStatusEl.textContent = '💾 保存中...';
+  saveStatusEl.style.color = '#1a73e8';
+
+  saveFile(blob, filename).then(function(result) {
+    window.isSaving = false;
+    if (result.success) {
+      window.saveComplete = true;
+      window.uploadComplete = true; // backward compat for scheduler
+      if (result.method === 'folder') {
+        saveStatusEl.textContent = '✅ ' + result.path;
+        saveStatusEl.style.color = '#2e7d32';
+        document.getElementById('statusText').textContent = '録音完了: ' + result.path;
+      } else {
+        saveStatusEl.textContent = '⬇️ ダウンロードフォルダに保存しました';
+        saveStatusEl.style.color = '#f57c00';
+        document.getElementById('statusText').textContent = '録音完了: ' + filename;
+      }
+      log('保存完了: ' + filename + ' (' + (blob.size / 1024 / 1024).toFixed(1) + 'MB)');
+    } else {
+      saveStatusEl.textContent = '❌ 保存エラー: ' + result.error;
+      saveStatusEl.style.color = '#d32f2f';
+      document.getElementById('statusText').textContent = '録音完了（保存エラー）';
+    }
+  });
 }
 
 function cancelRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.onstop = null; // handleStopを発火させない（保存・アップロードしない）
+    mediaRecorder.onstop = null;
     mediaRecorder.stop();
     mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
     clearInterval(timerInterval);
@@ -373,7 +447,7 @@ function cancelRecording() {
   document.getElementById('stopBtn').disabled = true;
   document.getElementById('cancelBtn').style.display = 'none';
   document.getElementById('nameInput').disabled = false;
-  document.getElementById('downloadArea').style.display = 'none';
+  document.getElementById('saveArea').style.display = 'none';
   document.getElementById('resetBtn').style.display = 'none';
   log('録音キャンセル - ファイルは保存されません');
 }
@@ -383,16 +457,12 @@ function resetRecorder() {
   window.recordingBlob = null;
   window.recordingFilename = null;
   window.recordingReady = false;
-  window.driveFileUrl = null;
-  window.isUploading = false;
+  window.saveComplete = false;
+  window.isSaving = false;
   window.uploadComplete = false;
-  document.getElementById('downloadArea').style.display = 'none';
+  window.isUploading = false;
+  document.getElementById('saveArea').style.display = 'none';
   document.getElementById('resetBtn').style.display = 'none';
-  document.getElementById('driveStatus').textContent = '';
-  var driveBtn = document.getElementById('driveBtn');
-  driveBtn.disabled = true;
-  driveBtn.style.background = '#1a73e8';
-  driveBtn.onclick = null;
   document.body.className = 'idle';
   document.getElementById('statusText').textContent = '録音待機中';
   document.getElementById('timer').textContent = '00:00:00';
@@ -409,11 +479,13 @@ function setMeetingName(name) {
   log('会議名を設定: ' + name);
 }
 
+/* ======== Scheduler API ======== */
 window.MeetingRecorder = {
   start: startRecording,
   stop: stopRecording,
   cancel: cancelRecording,
   setName: setMeetingName,
+  confirmFolder: requestFolderPermission,
   isRecording: function() { return mediaRecorder && mediaRecorder.state === 'recording'; },
   getState: function() { return mediaRecorder ? mediaRecorder.state : 'inactive'; },
   getDuration: function() { return startTime ? Math.floor((Date.now() - startTime) / 1000) : 0; },
@@ -421,10 +493,17 @@ window.MeetingRecorder = {
   getFilename: function() { return window.recordingFilename || null; },
   getBlobSize: function() { return window.recordingBlob ? window.recordingBlob.size : 0; },
   isReady: function() { return window.recordingReady === true; },
-  isUploading: function() { return window.isUploading === true; },
-  isUploadComplete: function() { return window.uploadComplete === true; },
+  isSaving: function() { return window.isSaving === true; },
+  isSaveComplete: function() { return window.saveComplete === true; },
+  // backward compat
+  isUploading: function() { return window.isSaving === true; },
+  isUploadComplete: function() { return window.saveComplete === true; },
+  hasFolderAccess: function() { return folderPermissionGranted; },
   reset: resetRecorder
 };
+
+/* ======== Init ======== */
+window.addEventListener('load', initFolder);
 </script>
 </body>
 </html>
