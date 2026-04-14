@@ -34,6 +34,9 @@ h1 { font-size: 1.4em; margin-bottom: 20px; color: #d32f2f; }
 .name-input input:focus { border-color: #d32f2f; outline: none; }
 .name-input input::placeholder { color: #999; }
 .name-input input:disabled { opacity: 0.5; }
+/* 録音中ファイル名変更可 */
+.name-input input.recording-editable { border-color: #ff9800; background: #fff9f0; }
+#renameHint { display: none; margin-top: 4px; font-size: 0.75em; color: #ff9800; font-weight: 600; }
 
 #timer { font-size: 4em; font-weight: 300; letter-spacing: 4px; margin: 20px 0; font-variant-numeric: tabular-nums; color: #222; }
 #status { font-size: 1.2em; margin: 15px 0; }
@@ -116,6 +119,7 @@ button {
 
   <div class="name-input">
     <input type="text" id="nameInput" placeholder="会議名を入力（例: 部門長会議）" value="">
+    <div id="renameHint">✏️ 録音中もファイル名を変更できます（停止時に反映）</div>
   </div>
   <div id="timer">00:00:00</div>
   <div id="status"><span id="pulse"></span><span id="statusText">録音待機中</span></div>
@@ -408,7 +412,8 @@ async function startRecording() {
     document.getElementById('statusText').textContent = '録音中: ' + meetingInfo.name;
     document.getElementById('startBtn').disabled = true;
     document.getElementById('stopBtn').disabled = false;
-    document.getElementById('nameInput').disabled = true;
+    document.getElementById('nameInput').classList.add('recording-editable');
+    document.getElementById('renameHint').style.display = 'block';
     document.getElementById('cancelBtn').style.display = 'inline-block';
     document.getElementById('resetBtn').style.display = 'none';
     document.getElementById('saveArea').style.display = 'none';
@@ -417,7 +422,14 @@ async function startRecording() {
     window.uploadComplete = false;
     window.isUploading = false;
     log('録音開始: ' + meetingInfo.name);
-  } catch (err) {
+  }
+}
+
+document.getElementById('nameInput').addEventListener('input', function() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    document.getElementById('statusText').textContent = '録音中: ' + (document.getElementById('nameInput').value.trim() || '無題の会議');
+  }
+ catch (err) {
     log('エラー: ' + err.message);
     alert('マイクへのアクセスを許可してください。');
   }
@@ -433,6 +445,8 @@ function stopRecording() {
     document.getElementById('startBtn').disabled = true;
     document.getElementById('stopBtn').disabled = true;
     document.getElementById('cancelBtn').style.display = 'none';
+    document.getElementById('nameInput').classList.remove('recording-editable');
+    document.getElementById('renameHint').style.display = 'none';
     log('録音停止');
   }
 }
@@ -440,7 +454,7 @@ function stopRecording() {
 function handleStop() {
   var blob = new Blob(audioChunks, { type: 'audio/webm' });
   var dateStr = getDateStr();
-  var safeName = meetingInfo.name.replace(/[<>:"\/\\|?*]/g, '_') || 'meeting';
+  var safeName = getMeetingName().replace(/[<>:"\/\\|?*]/g, '_') || 'meeting';
   var filename = dateStr + '_' + safeName + '.webm';
 
   document.getElementById('saveArea').style.display = 'block';
@@ -497,6 +511,8 @@ function cancelRecording() {
   document.getElementById('stopBtn').disabled = true;
   document.getElementById('cancelBtn').style.display = 'none';
   document.getElementById('nameInput').disabled = false;
+  document.getElementById('nameInput').classList.remove('recording-editable');
+  document.getElementById('renameHint').style.display = 'none';
   document.getElementById('saveArea').style.display = 'none';
   document.getElementById('resetBtn').style.display = 'none';
   log('録音キャンセル - ファイルは保存されません');
@@ -539,7 +555,7 @@ window.MeetingRecorder = {
   isRecording: function() { return mediaRecorder && mediaRecorder.state === 'recording'; },
   getState: function() { return mediaRecorder ? mediaRecorder.state : 'inactive'; },
   getDuration: function() { return startTime ? Math.floor((Date.now() - startTime) / 1000) : 0; },
-  getMeetingName: function() { return meetingInfo.name; },
+  getMeetingName: function() { return getMeetingName(); },
   getFilename: function() { return window.recordingFilename || null; },
   getBlobSize: function() { return window.recordingBlob ? window.recordingBlob.size : 0; },
   isReady: function() { return window.recordingReady === true; },
